@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>シフト管理システム</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; background-color: #f9f9f9; }
+    body { font-family: sans-serif; padding: 20px; max-width: 1000px; margin: auto; background-color: #f9f9f9; }
     .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
     input, select, button { padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
     input[type="text"], select { width: 100%; }
     button { background-color: #007BFF; color: white; border: none; font-weight: bold; cursor: pointer; width: 100%; }
     button:hover { background-color: #0056b3; }
     .admin-btn { background-color: #333; }
-    table { border-collapse: collapse; width: 100%; font-size: 14px; background: white; margin-top: 15px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; white-space: nowrap; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; background: white; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; white-space: nowrap; }
     th { background-color: #e6f2ff; }
     .shift-table th, .shift-table td { padding: 5px; }
+    .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
 </head>
@@ -65,27 +66,45 @@
   <div class="card no-print">
     <h2>⚙️ 管理者専用シフト確認</h2>
     <input type="password" id="admin-pass" placeholder="管理者コードを入力">
-    <button class="admin-btn" onclick="loadAdminView()">全メンバーのシフト表を表示</button>
+    
+    <label style="margin-top: 10px; display:block;">表示する月を選択</label>
+    <select id="admin-month-select" style="margin-bottom: 10px;"></select>
+
+    <button class="admin-btn" onclick="loadAdminView()">月別シフト表を表示</button>
   </div>
 
   <div id="admin-view" class="card" style="display:none;"></div>
 
   <script>
+    // 起動時に3ヶ月以上前の古いデータを自動削除する処理
+    function cleanOldData() {
+      let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
+      const now = new Date();
+      // 3ヶ月前の年月を算出 (例: 2026年9月なら 2026-06)
+      const thresholdDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      
+      shifts = shifts.filter(s => {
+        let [y, m] = s.date.split('-').map(Number);
+        let shiftDate = new Date(y, m - 1, 1);
+        return shiftDate >= thresholdDate;
+      });
+      localStorage.setItem('shifts_data', JSON.stringify(shifts));
+    }
+    cleanOldData();
+
     // 15日締め切りの判定と翌月の自動計算
     const today = new Date();
     const currentDay = today.getDate();
-    const currentMonth = today.getMonth(); // 0〜11
+    const currentMonth = today.getMonth(); 
     const currentYear = today.getFullYear();
 
-    // 翌月の取得
     const targetDate = new Date(currentYear, currentMonth + 1, 1);
     const targetYear = targetDate.getFullYear();
-    const targetMonth = targetDate.getMonth(); // 0-indexed
+    const targetMonth = targetDate.getMonth(); 
     const targetMonthDisplay = targetMonth + 1;
 
     document.getElementById("target-month-title").innerText = `📅 ${targetYear}年 ${targetMonthDisplay}月分の希望シフト`;
 
-    // 15日を過ぎたら翌々月分になるなどの制御が必要な場合はここで調整
     if (currentDay > 15) {
       document.getElementById("deadline-msg").innerText = "⚠️ 今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
       document.getElementById("submit-btn").disabled = true;
@@ -123,7 +142,19 @@
       calendarBody.appendChild(tr);
     }
 
-    // 一括送信処理
+    // 管理者用の月選択プルダウンを初期化（直近の数ヶ月を選択可能に）
+    const adminMonthSelect = document.getElementById('admin-month-select');
+    for (let i = 0; i < 4; i++) {
+      let d = new Date(currentYear, currentMonth + i, 1);
+      let y = d.getFullYear();
+      let m = d.getMonth() + 1;
+      let opt = document.createElement('option');
+      opt.value = `${y}-${String(m).padStart(2, '0')}`;
+      opt.text = `${y}年 ${m}月`;
+      adminMonthSelect.appendChild(opt);
+    }
+
+    // 一括送信処理（ログとして蓄積・上書き修正対応）
     document.getElementById('shift-form').addEventListener('submit', (e) => {
       e.preventDefault();
       if (currentDay > 15) return alert("締め切りを過ぎています。");
@@ -133,10 +164,10 @@
       
       let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
       
-      // 同じ人の既存データを一旦クリア（上書き修正できるようにする）
-      shifts = shifts.filter(s => s.name !== name);
+      // 今回提出する月の日付に該当する既存データのみクリア（他月のログや他人のログは残す）
+      let targetMonthPrefix = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}`;
+      shifts = shifts.filter(s => !(s.name === name && s.date.startsWith(targetMonthPrefix)));
 
-      // テーブルの各行から入力データを収集
       const rows = calendarBody.querySelectorAll('tr');
       rows.forEach(row => {
         const date = row.querySelector('.date-val').value;
@@ -182,7 +213,7 @@
       resultDiv.innerHTML = html;
     }
 
-    // 管理者画面の表示（パスワード3939）
+    // 管理者画面の表示（大番所が上、清掃が下。縦：名前、横：日付・曜日）
     function loadAdminView() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
@@ -190,45 +221,87 @@
         return;
       }
 
+      const selectedMonthStr = adminMonthSelect.value; // 例: "2026-10"
+      const [selY, selM] = selectedMonthStr.split('-').map(Number);
+      
       const viewDiv = document.getElementById('admin-view');
       viewDiv.style.display = "block";
 
       const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      if (shifts.length === 0) {
-        viewDiv.innerHTML = "<h3>シフト表</h3><p>保存されているデータはありません。</p>";
+      const monthShifts = shifts.filter(s => s.date.startsWith(selectedMonthStr));
+
+      if (monthShifts.length === 0) {
+        viewDiv.innerHTML = `<h3>📋 ${selY}年${selM}月 シフト表</h3><p>この月のデータはありません。</p>`;
         return;
       }
 
-      let names = [];
+      // 選択された月の全日数を算出
+      const daysInSelMonth = new Date(selY, selM, 0).getDate();
       let dates = [];
+      let weekDaysList = ['日', '月', '火', '水', '木', '金', '土'];
+      let dateHeaders = [];
+      let dayHeaders = [];
+
+      for (let d = 1; d <= daysInSelMonth; d++) {
+        let dateObj = new Date(selY, selM - 1, d);
+        let dateStr = `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        dates.push(dateStr);
+        dateHeaders.push(`${selM}/${d}`);
+        dayHeaders.push(weekDaysList[dateObj.getDay()]);
+      }
+
+      // 部門ごとに名前を分ける
+      let daibanshoNames = [];
+      let seisoNames = [];
       let shiftMap = {};
 
-      shifts.forEach(d => {
-        if (!names.includes(d.name)) names.push(d.name);
-        if (!dates.includes(d.date)) dates.push(d.date);
+      monthShifts.forEach(d => {
         if (!shiftMap[d.name]) shiftMap[d.name] = {};
         shiftMap[d.name][d.date] = `${d.start}〜${d.end}`;
+
+        if (d.department === "大番所" && !daibanshoNames.includes(d.name)) {
+          daibanshoNames.push(d.name);
+        } else if (d.department === "清掃" && !seisoNames.includes(d.name) && !daibanshoNames.includes(d.name)) {
+          seisoNames.push(d.name);
+        }
       });
 
-      dates.sort();
+      daibanshoNames.sort();
+      seisoNames.sort();
 
-      let html = "<h3>📋 メンバー別 シフト一覧表</h3>";
+      let html = `<h3>📋 ${selY}年${selM}月 シフト一覧表</h3>`;
       html += "<button class='no-print' onclick='window.print()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>📄 PDFとして保存 / 印刷する</button>";
-      html += "<div style='overflow-x:auto;'><table><tr><th>名前 \\ 日付</th>";
-      
-      dates.forEach(date => { html += `<th>${date.slice(5)}</th>`; }); // MM-DD形式で表示
+      html += "<div style='overflow-x:auto;'><table>";
+
+      // 1段目：日付列
+      html += "<tr><th>名前 \\ 日付</th>";
+      dateHeaders.forEach(dh => { html += `<th>${dh}</th>`; });
       html += "</tr>";
 
-      names.forEach(name => {
-        html += `<tr><th>${name}</th>`;
-        dates.forEach(date => {
-          let val = shiftMap[name][date] ? shiftMap[name][date] : "";
-          html += `<td>${val}</td>`;
-        });
-        html += "</tr>";
-      });
-      html += "</table></div>";
+      // 2段目：曜日列
+      html += "<tr><th>曜日</th>";
+      dayHeaders.forEach(wh => { html += `<th>${wh}</th>`; });
+      html += "</tr>";
 
+      // 部門描画の関数
+      function renderDeptRows(title, namesList) {
+        if (namesList.length === 0) return;
+        html += `<tr><td colspan="${dates.length + 1}" class="section-title">【 ${title} 】</td></tr>`;
+        namesList.forEach(name => {
+          html += `<tr><th>${name}</th>`;
+          dates.forEach(date => {
+            let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
+            html += `<td>${val}</td>`;
+          });
+          html += "</tr>";
+        });
+      }
+
+      // 上：大番所、下：清掃
+      renderDeptRows("大番所", daibanshoNames);
+      renderDeptRows("清掃", seisoNames);
+
+      html += "</table></div>";
       viewDiv.innerHTML = html;
     }
   </script>
