@@ -76,7 +76,6 @@
   <div id="admin-view" class="card" style="display:none;"></div>
 
   <script>
-    // 起動時に3ヶ月以上前の古いデータを自動削除する処理
     function cleanOldData() {
       let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
       const now = new Date();
@@ -91,7 +90,6 @@
     }
     cleanOldData();
 
-    // 15日締め切りの判定と翌月の自動計算
     const today = new Date();
     const currentDay = today.getDate();
     const currentMonth = today.getMonth(); 
@@ -109,7 +107,6 @@
       document.getElementById("submit-btn").disabled = true;
     }
 
-    // 時間の選択肢を生成
     let timeOptions = '<option value="">休み</option>';
     for (let h = 9; h <= 23; h++) {
       if (h === 23) {
@@ -122,7 +119,6 @@
       }
     }
 
-    // 翌月の日付をすべて生成してテーブルに埋め込む
     const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
     const calendarBody = document.getElementById('calendar-body');
     const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
@@ -141,7 +137,6 @@
       calendarBody.appendChild(tr);
     }
 
-    // 管理者用の月選択プルダウンを初期化
     const adminMonthSelect = document.getElementById('admin-month-select');
     for (let i = 0; i < 4; i++) {
       let d = new Date(currentYear, currentMonth + i, 1);
@@ -153,7 +148,6 @@
       adminMonthSelect.appendChild(opt);
     }
 
-    // 一括送信処理
     document.getElementById('shift-form').addEventListener('submit', (e) => {
       e.preventDefault();
       if (currentDay > 15) return alert("締め切りを過ぎています。");
@@ -162,7 +156,6 @@
       const department = document.getElementById('department').value;
       
       let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      
       let targetMonthPrefix = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}`;
       shifts = shifts.filter(s => !(s.name === name && s.date.startsWith(targetMonthPrefix)));
 
@@ -183,7 +176,6 @@
       location.reload();
     });
 
-    // 個人シフト検索機能
     function searchMyShifts() {
       const searchName = document.getElementById('search-name').value.trim();
       const resultDiv = document.getElementById('my-shifts-result');
@@ -211,7 +203,6 @@
       resultDiv.innerHTML = html;
     }
 
-    // CSVとしてダウンロードする関数
     function downloadCSV() {
       const selectedMonthStr = adminMonthSelect.value;
       const [selY, selM] = selectedMonthStr.split('-').map(Number);
@@ -225,12 +216,19 @@
 
       const daysInSelMonth = new Date(selY, selM, 0).getDate();
       let dates = [];
-      let dateHeaders = ["部門", "名前"];
+      let dateHeaders = ["", ""];
 
       for (let d = 1; d <= daysInSelMonth; d++) {
         let dateStr = `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         dates.push(dateStr);
         dateHeaders.push(`${selM}/${d}`);
+      }
+
+      let weekDaysList = ['日', '月', '火', '水', '木', '金', '土'];
+      let dayHeaders = ["", ""];
+      for (let d = 1; d <= daysInSelMonth; d++) {
+        let dateObj = new Date(selY, selM - 1, d);
+        dayHeaders.push(weekDaysList[dateObj.getDay()]);
       }
 
       let daibanshoNames = [];
@@ -239,7 +237,7 @@
 
       monthShifts.forEach(d => {
         if (!shiftMap[d.name]) shiftMap[d.name] = {};
-        shiftMap[d.name][d.date] = `${d.start}-${d.end}`;
+        shiftMap[d.name][d.date] = `${d.start}〜${d.end}`;
 
         if (d.department === "大番所" && !daibanshoNames.includes(d.name)) {
           daibanshoNames.push(d.name);
@@ -253,12 +251,15 @@
 
       let csvRows = [];
       csvRows.push(dateHeaders.join(','));
+      csvRows.push(dayHeaders.join(','));
 
-      function addRowsToCSV(deptName, namesList) {
+      function addRowsToCSV(deptTitle, namesList) {
+        if (namesList.length === 0) return;
+        csvRows.push(`"【 ${deptTitle} 】",` + Array(dates.length).fill("").join(','));
         namesList.forEach(name => {
-          let row = [deptName, `"${name}"`];
+          let row = [`"${name}"`, ""];
           dates.forEach(date => {
-            let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
+            let val = (shiftMap[name] && shiftMap[name][date]) ? `"${shiftMap[name][date]}"` : "";
             row.push(val);
           });
           csvRows.push(row.join(','));
@@ -269,7 +270,7 @@
       addRowsToCSV("清掃", seisoNames);
 
       const csvString = csvRows.join('\r\n');
-      const bom = new Uint8Array([0xEF, 0xBB, 0xBF]); // 文字化け防止のBOM
+      const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
       const blob = new Blob([bom, csvString], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       
@@ -282,7 +283,6 @@
       URL.revokeObjectURL(url);
     }
 
-    // 管理者画面の表示
     function loadAdminView() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
@@ -340,12 +340,10 @@
       html += `<button class='no-print' onclick='downloadCSV()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>📥 CSVファイルとしてダウンロードする</button>`;
       html += "<div style='overflow-x:auto;'><table>";
 
-      // 1段目：日付列
       html += "<tr><th>名前 \\ 日付</th>";
       dateHeaders.forEach(dh => { html += `<th>${dh}</th>`; });
       html += "</tr>";
 
-      // 2段目：曜日列
       html += "<tr><th>曜日</th>";
       dayHeaders.forEach(wh => { html += `<th>${wh}</th>`; });
       html += "</tr>";
