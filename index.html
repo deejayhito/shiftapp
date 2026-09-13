@@ -5,23 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>シフト管理システム</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: auto; background-color: #f9f9f9; }
+    body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; background-color: #f9f9f9; }
     .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    input, select, button { width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
-    button { background-color: #007BFF; color: white; border: none; font-weight: bold; cursor: pointer; }
+    input, select, button { padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
+    input[type="text"], select { width: 100%; }
+    button { background-color: #007BFF; color: white; border: none; font-weight: bold; cursor: pointer; width: 100%; }
     button:hover { background-color: #0056b3; }
     .admin-btn { background-color: #333; }
     table { border-collapse: collapse; width: 100%; font-size: 14px; background: white; margin-top: 15px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: center; white-space: nowrap; }
     th { background-color: #e6f2ff; }
+    .shift-table th, .shift-table td { padding: 5px; }
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
 </head>
 <body>
 
-  <!-- ================= バイト用入力画面 ================= -->
+  <!-- ================= バイト用 一括入力画面 ================= -->
   <div class="card" id="submit-section">
-    <h2>🕒 シフト提出フォーム</h2>
+    <h2>🕒 翌月シフト一括提出フォーム</h2>
     <div id="deadline-msg" style="color: red; font-weight: bold; margin-bottom: 15px;"></div>
     
     <form id="shift-form">
@@ -34,83 +36,157 @@
         <option value="清掃">清掃</option>
       </select>
 
-      <label>出勤希望日</label>
-      <input type="date" id="date" required>
+      <h3 id="target-month-title" style="margin-top: 20px; color: #333;"></h3>
+      <p style="font-size: 13px; color: #666;">出勤しない日は「休み」のままにしてください。</p>
 
-      <label>開始時間</label>
-      <select id="start_time" required></select>
+      <div style="overflow-x: auto;">
+        <table class="shift-table">
+          <thead>
+            <tr><th>日付 (曜日)</th><th>開始時間</th><th>終了時間</th></tr>
+          </thead>
+          <tbody id="calendar-body"></tbody>
+        </table>
+      </div>
 
-      <label>終了時間</label>
-      <select id="end_time" required></select>
-
-      <button type="submit" id="submit-btn">シフトを提出する</button>
+      <button type="submit" id="submit-btn" style="margin-top: 20px;">一括でシフトを提出する</button>
     </form>
   </div>
 
-  <!-- ================= 管理者用ログイン・表示画面 ================= -->
+  <!-- ================= 個人シフト確認画面 ================= -->
   <div class="card no-print">
-    <h2>⚙️ 管理者専用シフト確認</h2>
-    <p>パスワード（3939）を入力すると、シフト表が表示されます。</p>
-    <input type="password" id="admin-pass" placeholder="管理者コード">
-    <button class="admin-btn" onclick="loadAdminView()">シフト表を表示する</button>
+    <h2>🔍 個人のシフト確認</h2>
+    <p>自分の名前を入力すると、提出済みのシフトがすべて確認できます。</p>
+    <input type="text" id="search-name" placeholder="例：山田 太郎">
+    <button onclick="searchMyShifts()" style="background-color: #28a745;">自分のシフトを検索</button>
+    <div id="my-shifts-result" style="margin-top: 15px;"></div>
   </div>
 
-  <!-- シフト表が表示されるエリア -->
+  <!-- ================= 管理者用画面 ================= -->
+  <div class="card no-print">
+    <h2>⚙️ 管理者専用シフト確認</h2>
+    <input type="password" id="admin-pass" placeholder="管理者コードを入力">
+    <button class="admin-btn" onclick="loadAdminView()">全メンバーのシフト表を表示</button>
+  </div>
+
   <div id="admin-view" class="card" style="display:none;"></div>
 
   <script>
-    // 15日締め切りのチェック
+    // 15日締め切りの判定と翌月の自動計算
     const today = new Date();
-    if (today.getDate() > 15) {
+    const currentDay = today.getDate();
+    const currentMonth = today.getMonth(); // 0〜11
+    const currentYear = today.getFullYear();
+
+    // 翌月の取得
+    const targetDate = new Date(currentYear, currentMonth + 1, 1);
+    const targetYear = targetDate.getFullYear();
+    const targetMonth = targetDate.getMonth(); // 0-indexed
+    const targetMonthDisplay = targetMonth + 1;
+
+    document.getElementById("target-month-title").innerText = `📅 ${targetYear}年 ${targetMonthDisplay}月分の希望シフト`;
+
+    // 15日を過ぎたら翌々月分になるなどの制御が必要な場合はここで調整
+    if (currentDay > 15) {
       document.getElementById("deadline-msg").innerText = "⚠️ 今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
       document.getElementById("submit-btn").disabled = true;
     }
 
-    // 15分刻みの時間を生成
-    const startSelect = document.getElementById('start_time');
-    const endSelect = document.getElementById('end_time');
+    // 時間の選択肢を生成
+    let timeOptions = '<option value="">休み</option>';
     for (let h = 9; h <= 23; h++) {
       if (h === 23) {
-        let opt = new Option("23:00", "23:00");
-        startSelect.add(opt.cloneNode(true));
-        endSelect.add(opt);
+        timeOptions += `<option value="23:00">23:00</option>`;
         break;
       }
       for (let m of [0, 15, 30, 45]) {
         let time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-        let opt = new Option(time, time);
-        startSelect.add(opt.cloneNode(true));
-        endSelect.add(opt);
+        timeOptions += `<option value="${time}">${time}</option>`;
       }
     }
 
-    // バイトからの送信処理（ブラウザに保存）
+    // 翌月の日付をすべて生成してテーブルに埋め込む
+    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const calendarBody = document.getElementById('calendar-body');
+    const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      let dateObj = new Date(targetYear, targetMonth, d);
+      let weekDay = weekDays[dateObj.getDay()];
+      let dateStr = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><b>${targetMonthDisplay}/${d} (${weekDay})</b><input type="hidden" class="date-val" value="${dateStr}"></td>
+        <td><select class="start-val">${timeOptions}</select></td>
+        <td><select class="end-val">${timeOptions}</select></td>
+      `;
+      calendarBody.appendChild(tr);
+    }
+
+    // 一括送信処理
     document.getElementById('shift-form').addEventListener('submit', (e) => {
       e.preventDefault();
-      if (today.getDate() > 15) return alert("締め切りを過ぎています。");
+      if (currentDay > 15) return alert("締め切りを過ぎています。");
 
-      const newData = {
-        name: document.getElementById('name').value,
-        department: document.getElementById('department').value,
-        date: document.getElementById('date').value,
-        start: document.getElementById('start_time').value,
-        end: document.getElementById('end_time').value
-      };
-
-      // 既存のデータを取得して追加
+      const name = document.getElementById('name').value.trim();
+      const department = document.getElementById('department').value;
+      
       let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      shifts.push(newData);
-      localStorage.setItem('shifts_data', JSON.stringify(shifts));
+      
+      // 同じ人の既存データを一旦クリア（上書き修正できるようにする）
+      shifts = shifts.filter(s => s.name !== name);
 
-      alert("シフトを提出しました！");
+      // テーブルの各行から入力データを収集
+      const rows = calendarBody.querySelectorAll('tr');
+      rows.forEach(row => {
+        const date = row.querySelector('.date-val').value;
+        const start = row.querySelector('.start-val').value;
+        const end = row.querySelector('.end-val').value;
+
+        if (start !== "" && end !== "") {
+          shifts.push({ name, department, date, start, end });
+        }
+      });
+
+      localStorage.setItem('shifts_data', JSON.stringify(shifts));
+      alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
       document.getElementById('shift-form').reset();
+      location.reload();
     });
 
-    // 管理者ビューの読み込み（パスワード 3939）
+    // 個人シフト検索機能
+    function searchMyShifts() {
+      const searchName = document.getElementById('search-name').value.trim();
+      const resultDiv = document.getElementById('my-shifts-result');
+      
+      if (!searchName) {
+        resultDiv.innerHTML = "<p style='color:red;'>名前を入力してください。</p>";
+        return;
+      }
+
+      const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
+      const myShifts = shifts.filter(s => s.name === searchName);
+
+      if (myShifts.length === 0) {
+        resultDiv.innerHTML = `<p>「${searchName}」さんの提出済みシフトはありません。</p>`;
+        return;
+      }
+
+      myShifts.sort((a, b) => a.date.localeCompare(b.date));
+
+      let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul>`;
+      myShifts.forEach(s => {
+        html += `<li>${s.date}：${s.start} 〜 ${s.end} （${s.department}）</li>`;
+      });
+      html += `</ul>`;
+      resultDiv.innerHTML = html;
+    }
+
+    // 管理者画面の表示（パスワード3939）
     function loadAdminView() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
-        alert("管理者パスワードが違います。");
+        alert("管理者コードが違います。");
         return;
       }
 
@@ -131,16 +207,16 @@
         if (!names.includes(d.name)) names.push(d.name);
         if (!dates.includes(d.date)) dates.push(d.date);
         if (!shiftMap[d.name]) shiftMap[d.name] = {};
-        shiftMap[d.name][d.date] = `${d.start}〜${d.end} (${d.department})`;
+        shiftMap[d.name][d.date] = `${d.start}〜${d.end}`;
       });
 
-      dates.sort(); // 日付順にソート
+      dates.sort();
 
-      let html = "<h3>📋 提出済みシフト表（横：日付 / 縦：名前）</h3>";
-      html += "<button class='no-print' onclick='window.print()' style='background:#28a745; margin-bottom:15px;'>📄 PDFとして保存 / 印刷する</button>";
-      html += "<table><tr><th>名前 \\ 日付</th>";
+      let html = "<h3>📋 メンバー別 シフト一覧表</h3>";
+      html += "<button class='no-print' onclick='window.print()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>📄 PDFとして保存 / 印刷する</button>";
+      html += "<div style='overflow-x:auto;'><table><tr><th>名前 \\ 日付</th>";
       
-      dates.forEach(date => { html += `<th>${date}</th>`; });
+      dates.forEach(date => { html += `<th>${date.slice(5)}</th>`; }); // MM-DD形式で表示
       html += "</tr>";
 
       names.forEach(name => {
@@ -151,7 +227,7 @@
         });
         html += "</tr>";
       });
-      html += "</table>";
+      html += "</table></div>";
 
       viewDiv.innerHTML = html;
     }
