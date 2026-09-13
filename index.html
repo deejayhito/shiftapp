@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シフト管理システム</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: auto; background-color: #f9f9f9; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    input, select, button { width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
+    button { background-color: #007BFF; color: white; border: none; font-weight: bold; cursor: pointer; }
+    button:hover { background-color: #0056b3; }
+    .admin-btn { background-color: #333; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; background: white; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; white-space: nowrap; }
+    th { background-color: #e6f2ff; }
+    @media print { .no-print { display: none; } @page { size: landscape; } }
+  </style>
+</head>
+<body>
+
+  <!-- ================= バイト用入力画面 ================= -->
+  <div class="card" id="submit-section">
+    <h2>🕒 シフト提出フォーム</h2>
+    <div id="deadline-msg" style="color: red; font-weight: bold; margin-bottom: 15px;"></div>
+    
+    <form id="shift-form">
+      <label>名前</label>
+      <input type="text" id="name" placeholder="山田 太郎" required>
+
+      <label>部門</label>
+      <select id="department" required>
+        <option value="大番所">大番所</option>
+        <option value="清掃">清掃</option>
+      </select>
+
+      <label>出勤希望日</label>
+      <input type="date" id="date" required>
+
+      <label>開始時間</label>
+      <select id="start_time" required></select>
+
+      <label>終了時間</label>
+      <select id="end_time" required></select>
+
+      <button type="submit" id="submit-btn">シフトを提出する</button>
+    </form>
+  </div>
+
+  <!-- ================= 管理者用ログイン・表示画面 ================= -->
+  <div class="card no-print">
+    <h2>⚙️ 管理者専用シフト確認</h2>
+    <p>パスワード（3939）を入力すると、シフト表が表示されます。</p>
+    <input type="password" id="admin-pass" placeholder="管理者コード">
+    <button class="admin-btn" onclick="loadAdminView()">シフト表を表示する</button>
+  </div>
+
+  <!-- シフト表が表示されるエリア -->
+  <div id="admin-view" class="card" style="display:none;"></div>
+
+  <script>
+    // 15日締め切りのチェック
+    const today = new Date();
+    if (today.getDate() > 15) {
+      document.getElementById("deadline-msg").innerText = "⚠️ 今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
+      document.getElementById("submit-btn").disabled = true;
+    }
+
+    // 15分刻みの時間を生成
+    const startSelect = document.getElementById('start_time');
+    const endSelect = document.getElementById('end_time');
+    for (let h = 9; h <= 23; h++) {
+      if (h === 23) {
+        let opt = new Option("23:00", "23:00");
+        startSelect.add(opt.cloneNode(true));
+        endSelect.add(opt);
+        break;
+      }
+      for (let m of [0, 15, 30, 45]) {
+        let time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        let opt = new Option(time, time);
+        startSelect.add(opt.cloneNode(true));
+        endSelect.add(opt);
+      }
+    }
+
+    // バイトからの送信処理（ブラウザに保存）
+    document.getElementById('shift-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (today.getDate() > 15) return alert("締め切りを過ぎています。");
+
+      const newData = {
+        name: document.getElementById('name').value,
+        department: document.getElementById('department').value,
+        date: document.getElementById('date').value,
+        start: document.getElementById('start_time').value,
+        end: document.getElementById('end_time').value
+      };
+
+      // 既存のデータを取得して追加
+      let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
+      shifts.push(newData);
+      localStorage.setItem('shifts_data', JSON.stringify(shifts));
+
+      alert("シフトを提出しました！");
+      document.getElementById('shift-form').reset();
+    });
+
+    // 管理者ビューの読み込み（パスワード 3939）
+    function loadAdminView() {
+      const pass = document.getElementById('admin-pass').value;
+      if (pass !== "3939") {
+        alert("管理者パスワードが違います。");
+        return;
+      }
+
+      const viewDiv = document.getElementById('admin-view');
+      viewDiv.style.display = "block";
+
+      const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
+      if (shifts.length === 0) {
+        viewDiv.innerHTML = "<h3>シフト表</h3><p>保存されているデータはありません。</p>";
+        return;
+      }
+
+      let names = [];
+      let dates = [];
+      let shiftMap = {};
+
+      shifts.forEach(d => {
+        if (!names.includes(d.name)) names.push(d.name);
+        if (!dates.includes(d.date)) dates.push(d.date);
+        if (!shiftMap[d.name]) shiftMap[d.name] = {};
+        shiftMap[d.name][d.date] = `${d.start}〜${d.end} (${d.department})`;
+      });
+
+      dates.sort(); // 日付順にソート
+
+      let html = "<h3>📋 提出済みシフト表（横：日付 / 縦：名前）</h3>";
+      html += "<button class='no-print' onclick='window.print()' style='background:#28a745; margin-bottom:15px;'>📄 PDFとして保存 / 印刷する</button>";
+      html += "<table><tr><th>名前 \\ 日付</th>";
+      
+      dates.forEach(date => { html += `<th>${date}</th>`; });
+      html += "</tr>";
+
+      names.forEach(name => {
+        html += `<tr><th>${name}</th>`;
+        dates.forEach(date => {
+          let val = shiftMap[name][date] ? shiftMap[name][date] : "";
+          html += `<td>${val}</td>`;
+        });
+        html += "</tr>";
+      });
+      html += "</table>";
+
+      viewDiv.innerHTML = html;
+    }
+  </script>
+</body>
+</html>
