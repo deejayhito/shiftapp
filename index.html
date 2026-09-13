@@ -358,7 +358,7 @@
       const monthShifts = shifts.filter(s => s.date.startsWith(selectedMonthStr));
 
       if (monthShifts.length === 0) {
-        viewDiv.innerHTML = `<h3>${selY}年${selM}月 シフト表</h3><p>この月のデータはありません。</p>`;
+        viewDiv.innerHTML = `<h3>${selY}年${selM}月 シフト表</h3><p>এই月のデータはありません。</p>`;
         return;
       }
 
@@ -414,7 +414,7 @@
       html += "</tr>";
 
       html += "<tr><th></th>";
-      for (let i = 1; i < dayHeaders.length; i++) {
+      for (let i = 0; i < dayHeaders.length; i++) {
         html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
       }
       html += "</tr>";
