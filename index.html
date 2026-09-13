@@ -17,6 +17,11 @@
     th { background-color: #e6f2ff; }
     .shift-table th, .shift-table td { padding: 5px; }
     .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
+    
+    /* 曜日・日付セルの色設定 */
+    .sat-cell { background-color: #e6f2ff !important; color: #0000cc; }
+    .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000; }
+
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
 </head>
@@ -24,12 +29,12 @@
 
   <!-- ================= バイト用 一括入力画面 ================= -->
   <div class="card" id="submit-section">
-    <h2>🕒 翌月シフト一括提出フォーム</h2>
+    <h2>翌月シフト一括提出フォーム</h2>
     <div id="deadline-msg" style="color: red; font-weight: bold; margin-bottom: 15px;"></div>
     
     <form id="shift-form">
       <label>名前</label>
-      <input type="text" id="name" placeholder="山田 太郎" required>
+      <input type="text" id="name" value="坂本佑樹" placeholder="坂本佑樹" required>
 
       <label>部門</label>
       <select id="department" required>
@@ -38,7 +43,7 @@
       </select>
 
       <h3 id="target-month-title" style="margin-top: 20px; color: #333;"></h3>
-      <p style="font-size: 13px; color: #666;">出勤しない日は「休み」のままにしてください。</p>
+      <p style="font-size: 13px; color: #666;">休み希望の場合は「休み」のままにしてください。</p>
 
       <div style="overflow-x: auto;">
         <table class="shift-table">
@@ -55,16 +60,16 @@
 
   <!-- ================= 個人シフト確認画面 ================= -->
   <div class="card no-print">
-    <h2>🔍 個人のシフト確認</h2>
+    <h2>個人のシフト確認</h2>
     <p>自分の名前を入力すると、提出済みのシフトがすべて確認できます。</p>
-    <input type="text" id="search-name" placeholder="例：山田 太郎">
+    <input type="text" id="search-name" placeholder="例：坂本佑樹">
     <button onclick="searchMyShifts()" style="background-color: #28a745;">自分のシフトを検索</button>
     <div id="my-shifts-result" style="margin-top: 15px;"></div>
   </div>
 
   <!-- ================= 管理者用画面 ================= -->
   <div class="card no-print">
-    <h2>⚙️ 管理者専用シフト確認</h2>
+    <h2>管理者専用シフト確認</h2>
     <input type="password" id="admin-pass" placeholder="管理者コードを入力">
     
     <label style="margin-top: 10px; display:block;">表示する月を選択</label>
@@ -76,6 +81,62 @@
   <div id="admin-view" class="card" style="display:none;"></div>
 
   <script>
+    // 簡易祝日判定関数（内閣府の定義に準拠：主要な固定・ハッピーマンデー祝日および主要な春分・秋分に対応）
+    function getHolidayName(year, month, day) {
+      // 0始まりの月を1始まりに補正
+      let m = month + 1;
+      let d = day;
+      
+      let dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      
+      // 固定祝日
+      const fixedHolidays = {
+        "1-1": "元日",
+        "2-11": "建国記念の日",
+        "2-23": "天皇誕生日",
+        "4-29": "昭和の日",
+        "5-3": "憲法記念日",
+        "5-4": "みどりの日",
+        "5-5": "こどもの日",
+        "8-11": "山の日",
+        "11-3": "文化の日",
+        "11-23": "勤労感謝の日"
+      };
+      if (fixedHolidays[`${m}-${d}`]) return fixedHolidays[`${m}-${d}`];
+
+      // 春分の日・秋分日（簡易計算）
+      if (m === 3) {
+        let vernal = Math.floor(20.8431 + 0.242194 * (year - 2000) - Math.floor((year - 2000) / 4));
+        if (d === vernal) return "春分の日";
+      }
+      if (m === 9) {
+        let autumn = Math.floor(23.2488 + 0.242194 * (year - 2000) - Math.floor((year - 2000) / 4));
+        if (d === autumn) return "秋分の日";
+      }
+
+      // ハッピーマンデー等（何回目の何曜日か）
+      let dateObj = new Date(year, month, d);
+      let weekDay = dateObj.getDay(); // 0:日, 1:月...
+      let weekNum = Math.floor((d - 1) / 7) + 1;
+
+      // 成人の日：1月第2月曜日
+      if (m === 1 && weekDay === 1 && weekNum === 2) return "成人の日";
+      // 海の日：7月第3月曜日
+      if (m === 7 && weekDay === 1 && weekNum === 3) return "海の日";
+      // 敬老の日：9月第3月曜日
+      if (m === 9 && weekDay === 1 && weekNum === 3) return "敬老の日";
+      // スポーツの日：10月第2月曜日
+      if (m === 10 && weekDay === 1 && weekNum === 2) return "スポーツの日";
+
+      // 振替休日・国民の休日の簡易判定（日曜日が祝日の場合の翌月曜日など）
+      let prevDate = new Date(year, month, d - 1);
+      if (prevDate.getDay() === 0 && getHolidayName(year, prevDate.getMonth(), prevDate.getDate())) {
+        return "振替休日";
+      }
+
+      return null;
+    }
+
     function cleanOldData() {
       let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
       const now = new Date();
@@ -100,10 +161,10 @@
     const targetMonth = targetDate.getMonth(); 
     const targetMonthDisplay = targetMonth + 1;
 
-    document.getElementById("target-month-title").innerText = `📅 ${targetYear}年 ${targetMonthDisplay}月分の希望シフト`;
+    document.getElementById("target-month-title").innerText = `${targetYear}年 ${targetMonthDisplay}月分の希望シフト`;
 
     if (currentDay > 15) {
-      document.getElementById("deadline-msg").innerText = "⚠️ 今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
+      document.getElementById("deadline-msg").innerText = "今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
       document.getElementById("submit-btn").disabled = true;
     }
 
@@ -125,12 +186,18 @@
 
     for (let d = 1; d <= daysInMonth; d++) {
       let dateObj = new Date(targetYear, targetMonth, d);
-      let weekDay = weekDays[dateObj.getDay()];
+      let dayIndex = dateObj.getDay();
+      let weekDay = weekDays[dayIndex];
       let dateStr = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       
+      let isHol = getHolidayName(targetYear, targetMonth, d);
+      let cellClass = "";
+      if (dayIndex === 6) cellClass = "sat-cell";
+      else if (dayIndex === 0 || isHol) cellClass = "sun-hol-cell";
+
       let tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><b>${targetMonthDisplay}/${d} (${weekDay})</b><input type="hidden" class="date-val" value="${dateStr}"></td>
+        <td class="${cellClass}"><b>${targetMonthDisplay}/${d} (${weekDay})</b><input type="hidden" class="date-val" value="${dateStr}"></td>
         <td><select class="start-val">${timeOptions}</select></td>
         <td><select class="end-val">${timeOptions}</select></td>
       `;
@@ -173,7 +240,7 @@
       localStorage.setItem('shifts_data', JSON.stringify(shifts));
       alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
       document.getElementById('shift-form').reset();
-      location.reload();
+      document.getElementById('name').value = "坂本佑樹";
     });
 
     function searchMyShifts() {
@@ -300,7 +367,7 @@
       const monthShifts = shifts.filter(s => s.date.startsWith(selectedMonthStr));
 
       if (monthShifts.length === 0) {
-        viewDiv.innerHTML = `<h3>📋 ${selY}年${selM}月 シフト表</h3><p>この月のデータはありません。</p>`;
+        viewDiv.innerHTML = `<h3>${selY}年${selM}月 シフト表</h3><p>この月のデータはありません。</p>`;
         return;
       }
 
@@ -309,13 +376,22 @@
       let weekDaysList = ['日', '月', '火', '水', '木', '金', '土'];
       let dateHeaders = [];
       let dayHeaders = [];
+      let cellClasses = [];
 
       for (let d = 1; d <= daysInSelMonth; d++) {
         let dateObj = new Date(selY, selM - 1, d);
+        let dayIndex = dateObj.getDay();
         let dateStr = `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        let isHol = getHolidayName(selY, selM - 1, d);
+        
         dates.push(dateStr);
         dateHeaders.push(`${selM}/${d}`);
-        dayHeaders.push(weekDaysList[dateObj.getDay()]);
+        dayHeaders.push(weekDaysList[dayIndex]);
+
+        let cls = "";
+        if (dayIndex === 6) cls = "sat-cell";
+        else if (dayIndex === 0 || isHol) cls = "sun-hol-cell";
+        cellClasses.push(cls);
       }
 
       let daibanshoNames = [];
@@ -336,16 +412,22 @@
       daibanshoNames.sort();
       seisoNames.sort();
 
-      let html = `<h3>📋 ${selY}年${selM}月 シフト一覧表</h3>`;
-      html += `<button class='no-print' onclick='downloadCSV()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>📥 CSVファイルとしてダウンロードする</button>`;
+      let html = `<h3>${selY}年${selM}月 シフト一覧表</h3>`;
+      html += `<button class='no-print' onclick='downloadCSV()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>CSVファイルとしてダウンロードする</button>`;
       html += "<div style='overflow-x:auto;'><table>";
 
-      html += "<tr><th>名前 \\ 日付</th>";
-      dateHeaders.forEach(dh => { html += `<th>${dh}</th>`; });
+      // 1段目：日付行（対応する列のセルに色を適用）
+      html += "<tr><th></th>";
+      for (let i = 0; i < dateHeaders.length; i++) {
+        html += `<th class="${cellClasses[i]}">${dateHeaders[i]}</th>`;
+      }
       html += "</tr>";
 
-      html += "<tr><th>曜日</th>";
-      dayHeaders.forEach(wh => { html += `<th>${wh}</th>`; });
+      // 2段目：曜日行（対応する列のセルに色を適用）
+      html += "<tr><th></th>";
+      for (let i = 0; i < dayHeaders.length; i++) {
+        html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
+      }
       html += "</tr>";
 
       function renderDeptRows(title, namesList) {
@@ -353,10 +435,12 @@
         html += `<tr><td colspan="${dates.length + 1}" class="section-title">【 ${title} 】</td></tr>`;
         namesList.forEach(name => {
           html += `<tr><th>${name}</th>`;
-          dates.forEach(date => {
+          for (let i = 0; i < dates.length; i++) {
+            let date = dates[i];
             let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
-            html += `<td>${val}</td>`;
-          });
+            // スタッフの名前ごとの行においても、土日祝の列（セル）に同じ背景色を適用
+            html += `<td class="${cellClasses[i]}">${val}</td>`;
+          }
           html += "</tr>";
         });
       }
