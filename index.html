@@ -13,14 +13,18 @@
     button:hover { background-color: #0056b3; }
     .admin-btn { background-color: #333; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; background: white; margin-top: 15px; }
-    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; white-space: nowrap; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; white-space: nowrap; color: #000; }
     th { background-color: #e6f2ff; }
     .shift-table th, .shift-table td { padding: 5px; }
     .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
     
-    /* 曜日・日付セルの色設定 */
-    .sat-cell { background-color: #e6f2ff !important; color: #0000cc; }
-    .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000; }
+    /* 曜日・日付セルの色設定（時間は黒字） */
+    .sat-cell { background-color: #e0f2fe !important; color: #0369a1 !important; }
+    .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000 !important; }
+    
+    /* 管理者画面などで土日祝列の文字色を黒に戻すためのクラス */
+    .sat-cell-bg { background-color: #e0f2fe !important; color: #000 !important; }
+    .sun-hol-cell-bg { background-color: #ffe6e6 !important; color: #000 !important; }
 
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
@@ -34,7 +38,7 @@
     
     <form id="shift-form">
       <label>名前</label>
-      <input type="text" id="name" value="坂本佑樹" placeholder="坂本佑樹" required>
+      <input type="text" id="name" placeholder="例：坂本佑樹" required>
 
       <label>部門</label>
       <select id="department" required>
@@ -48,7 +52,7 @@
       <div style="overflow-x: auto;">
         <table class="shift-table">
           <thead>
-            <tr><th>日付 (曜日)</th><th>開始時間</th><th>終了時間</th></tr>
+            <tr><th>日付 (曜日)</th><th>出勤時間</th><th>退勤時間</th></tr>
           </thead>
           <tbody id="calendar-body"></tbody>
         </table>
@@ -81,15 +85,10 @@
   <div id="admin-view" class="card" style="display:none;"></div>
 
   <script>
-    // 簡易祝日判定関数（内閣府の定義に準拠：主要な固定・ハッピーマンデー祝日および主要な春分・秋分に対応）
     function getHolidayName(year, month, day) {
-      // 0始まりの月を1始まりに補正
       let m = month + 1;
       let d = day;
       
-      let dateStr = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      
-      // 固定祝日
       const fixedHolidays = {
         "1-1": "元日",
         "2-11": "建国記念の日",
@@ -104,7 +103,6 @@
       };
       if (fixedHolidays[`${m}-${d}`]) return fixedHolidays[`${m}-${d}`];
 
-      // 春分の日・秋分日（簡易計算）
       if (m === 3) {
         let vernal = Math.floor(20.8431 + 0.242194 * (year - 2000) - Math.floor((year - 2000) / 4));
         if (d === vernal) return "春分の日";
@@ -114,21 +112,15 @@
         if (d === autumn) return "秋分の日";
       }
 
-      // ハッピーマンデー等（何回目の何曜日か）
       let dateObj = new Date(year, month, d);
-      let weekDay = dateObj.getDay(); // 0:日, 1:月...
+      let weekDay = dateObj.getDay();
       let weekNum = Math.floor((d - 1) / 7) + 1;
 
-      // 成人の日：1月第2月曜日
       if (m === 1 && weekDay === 1 && weekNum === 2) return "成人の日";
-      // 海の日：7月第3月曜日
       if (m === 7 && weekDay === 1 && weekNum === 3) return "海の日";
-      // 敬老の日：9月第3月曜日
       if (m === 9 && weekDay === 1 && weekNum === 3) return "敬老の日";
-      // スポーツの日：10月第2月曜日
       if (m === 10 && weekDay === 1 && weekNum === 2) return "スポーツの日";
 
-      // 振替休日・国民の休日の簡易判定（日曜日が祝日の場合の翌月曜日など）
       let prevDate = new Date(year, month, d - 1);
       if (prevDate.getDay() === 0 && getHolidayName(year, prevDate.getMonth(), prevDate.getDate())) {
         return "振替休日";
@@ -240,7 +232,6 @@
       localStorage.setItem('shifts_data', JSON.stringify(shifts));
       alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
       document.getElementById('shift-form').reset();
-      document.getElementById('name').value = "坂本佑樹";
     });
 
     function searchMyShifts() {
@@ -389,8 +380,8 @@
         dayHeaders.push(weekDaysList[dayIndex]);
 
         let cls = "";
-        if (dayIndex === 6) cls = "sat-cell";
-        else if (dayIndex === 0 || isHol) cls = "sun-hol-cell";
+        if (dayIndex === 6) cls = "sat-cell-bg";
+        else if (dayIndex === 0 || isHol) cls = "sun-hol-cell-bg";
         cellClasses.push(cls);
       }
 
@@ -416,16 +407,14 @@
       html += `<button class='no-print' onclick='downloadCSV()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>CSVファイルとしてダウンロードする</button>`;
       html += "<div style='overflow-x:auto;'><table>";
 
-      // 1段目：日付行（対応する列のセルに色を適用）
       html += "<tr><th></th>";
       for (let i = 0; i < dateHeaders.length; i++) {
         html += `<th class="${cellClasses[i]}">${dateHeaders[i]}</th>`;
       }
       html += "</tr>";
 
-      // 2段目：曜日行（対応する列のセルに色を適用）
       html += "<tr><th></th>";
-      for (let i = 0; i < dayHeaders.length; i++) {
+      for (let i = 1; i < dayHeaders.length; i++) {
         html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
       }
       html += "</tr>";
@@ -438,7 +427,6 @@
           for (let i = 0; i < dates.length; i++) {
             let date = dates[i];
             let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
-            // スタッフの名前ごとの行においても、土日祝の列（セル）に同じ背景色を適用
             html += `<td class="${cellClasses[i]}">${val}</td>`;
           }
           html += "</tr>";
