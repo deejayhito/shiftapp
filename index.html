@@ -44,26 +44,28 @@
     button:hover { background-color: #0056b3; }
     .admin-btn { background-color: #333; }
 
-    /* 全体テーブル基本デザイン */
+    /* 全体テーブル基本デザイン（平日は白背景） */
     table { border-collapse: collapse; width: 100%; font-size: 13px; background: white; margin-top: 15px; }
     th, td { border: 1px solid #ccc; padding: 6px; text-align: center; white-space: nowrap; color: #000; }
-    th { background-color: #f0f4f8; }
+    th { background-color: #ffffff; }
     .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
 
-    /* シフト入力用テーブル（スマホ最適化） */
-    .shift-table { width: 100%; table-layout: fixed; font-size: 12px; margin-top: 10px; }
-    .shift-table th, .shift-table td { padding: 5px 2px; white-space: normal; word-break: break-all; }
-    .shift-table select { padding: 6px 2px; font-size: 12px; margin-bottom: 0; width: 100%; }
+    /* シフト入力用テーブル（スマホ最適化：5列配分） */
+    .shift-table { width: 100%; table-layout: fixed; font-size: 11px; margin-top: 10px; }
+    .shift-table th, .shift-table td { padding: 4px 1px; white-space: normal; word-break: break-all; }
+    .shift-table select { padding: 5px 1px; font-size: 11px; margin-bottom: 0; width: 100%; }
 
     /* 土曜日・日祝日のカラー配色クラス */
     .sat-cell { background-color: #e0f2fe !important; color: #0369a1 !important; }
     .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000 !important; }
     
     .sat-cell-bg { background-color: #e0f2fe !important; color: #000 !important; }
+    .sun-hol-bg { background-color: #ffe6e6 !important; color: #000 !important; }
 
-    /* 勤務時間カラムのスタイル */
+    /* 勤務時間・休憩カラムのスタイル */
     .work-time-val { font-weight: bold; color: #007BFF; font-size: 11px; }
     .work-time-error { font-weight: bold; color: #d9534f; font-size: 11px; }
+    .break-val { font-size: 11px; color: #555; }
 
     /* モード選択ボタンのスタイル */
     .mode-btn-container { display: flex; gap: 10px; margin-bottom: 15px; }
@@ -109,16 +111,17 @@
       <!-- シフト入力エリア（ボタン押下後に表示） -->
       <div id="shift-table-container" style="display: none;">
         <h3 id="target-month-title" style="margin-top: 20px; color: #333; font-size: 17px;"></h3>
-        <p style="font-size: 12px; color: #666; margin-bottom: 8px;">休み希望の場合は「休み」のままにしてください。</p>
+        <p style="font-size: 12px; color: #666; margin-bottom: 8px;">※6時間15分以上の勤務は自動で休憩1時間（有）になります。</p>
 
         <div style="width: 100%;">
           <table class="shift-table">
             <thead>
               <tr>
-                <th style="width: 26%;">日付</th>
-                <th style="width: 27%;">出勤</th>
-                <th style="width: 27%;">退勤</th>
-                <th style="width: 20%;">時間</th>
+                <th style="width: 25%;">日付</th>
+                <th style="width: 23%;">出勤</th>
+                <th style="width: 23%;">退勤</th>
+                <th style="width: 13%;">休憩</th>
+                <th style="width: 16%;">時間</th>
               </tr>
             </thead>
             <tbody id="calendar-body"></tbody>
@@ -206,29 +209,36 @@
       return null;
     }
 
-    // 勤務時間（「8時間」や「5時間30分」）の計算関数
-    function calculateWorkTimeText(startStr, endStr) {
-      if (!startStr || !endStr) return { text: "-", isError: false };
+    // ★休憩考慮つき勤務時間計算関数（6時間15分＝375分以上なら休憩60分を自動控除）
+    function calculateWorkTime(startStr, endStr) {
+      if (!startStr || !endStr) return { netMinutes: 0, text: "-", breakText: "-", isError: false };
 
       const [sH, sM] = startStr.split(':').map(Number);
       const [eH, eM] = endStr.split(':').map(Number);
 
       const startMinutes = sH * 60 + sM;
       const endMinutes = eH * 60 + eM;
-      const diff = endMinutes - startMinutes;
+      const grossDiff = endMinutes - startMinutes;
 
-      if (diff <= 0) {
-        return { text: "エラー", isError: true };
+      if (grossDiff <= 0) {
+        return { netMinutes: 0, text: "エラー", breakText: "-", isError: true };
       }
 
-      const hours = Math.floor(diff / 60);
-      const minutes = diff % 60;
-
-      if (minutes === 0) {
-        return { text: `${hours}時間`, isError: false };
-      } else {
-        return { text: `${hours}h${minutes}m`, isError: false };
+      // 6時間15分（375分）以上なら休憩1時間（60分）を引く
+      let breakMins = 0;
+      let breakText = "無";
+      if (grossDiff >= 375) {
+        breakMins = 60;
+        breakText = "有";
       }
+
+      const netMinutes = grossDiff - breakMins;
+      const hours = Math.floor(netMinutes / 60);
+      const minutes = netMinutes % 60;
+
+      let text = minutes === 0 ? `${hours}時間` : `${hours}h${minutes}m`;
+
+      return { netMinutes, text, breakText, isError: false };
     }
 
     // 全体の「勤務日数」と「総勤務時間」を計算して更新する関数
@@ -242,13 +252,10 @@
         const endVal = row.querySelector('.end-val').value;
 
         if (startVal && endVal) {
-          const [sH, sM] = startVal.split(':').map(Number);
-          const [eH, eM] = endVal.split(':').map(Number);
-          const diff = (eH * 60 + eM) - (sH * 60 + sM);
-
-          if (diff > 0) {
+          const res = calculateWorkTime(startVal, endVal);
+          if (!res.isError && res.netMinutes > 0) {
             daysCount++;
-            totalMinutes += diff;
+            totalMinutes += res.netMinutes;
           }
         }
       });
@@ -322,31 +329,34 @@
         <td class="${cellClass}"><b>${targetMonthDisplay}/${d} (${weekDay})</b><input type="hidden" class="date-val" value="${dateStr}"></td>
         <td><select class="start-val">${timeOptions}</select></td>
         <td><select class="end-val">${timeOptions}</select></td>
+        <td class="break-val">-</td>
         <td class="work-time-val">-</td>
       `;
 
       const startSelect = tr.querySelector('.start-val');
       const endSelect = tr.querySelector('.end-val');
       const workTimeCell = tr.querySelector('.work-time-val');
+      const breakCell = tr.querySelector('.break-val');
 
-      const updateWorkTime = () => {
+      const updateRowTime = () => {
         const startVal = startSelect.value;
         const endVal = endSelect.value;
-        const res = calculateWorkTimeText(startVal, endVal);
+        const res = calculateWorkTime(startVal, endVal);
         
         workTimeCell.innerText = res.text;
+        breakCell.innerText = res.breakText;
+
         if (res.isError) {
           workTimeCell.className = "work-time-error";
         } else {
           workTimeCell.className = "work-time-val";
         }
         
-        // 全体集計も更新
         updateOverallSummary();
       };
 
-      startSelect.addEventListener('change', updateWorkTime);
-      endSelect.addEventListener('change', updateWorkTime);
+      startSelect.addEventListener('change', updateRowTime);
+      endSelect.addEventListener('change', updateRowTime);
 
       calendarBody.appendChild(tr);
     }
@@ -357,6 +367,7 @@
       rows.forEach(row => {
         row.querySelector('.start-val').value = "";
         row.querySelector('.end-val').value = "";
+        row.querySelector('.break-val').innerText = "-";
         const workTimeCell = row.querySelector('.work-time-val, .work-time-error');
         workTimeCell.innerText = "-";
         workTimeCell.className = "work-time-val";
@@ -415,14 +426,14 @@
             endSelect.value = "";
           }
 
-          // 行ごとの勤務時間を再計算
-          const res = calculateWorkTimeText(startSelect.value, endSelect.value);
+          // 行ごとの勤務時間・休憩を再計算
+          const res = calculateWorkTime(startSelect.value, endSelect.value);
+          row.querySelector('.break-val').innerText = res.breakText;
           const workTimeCell = row.querySelector('.work-time-val, .work-time-error');
           workTimeCell.innerText = res.text;
           workTimeCell.className = res.isError ? "work-time-error" : "work-time-val";
         });
 
-        // 全体集計を更新
         updateOverallSummary();
         document.getElementById('shift-table-container').style.display = 'block';
         alert(`「${name}」さんの ${targetMonthDisplay}月分の前回提出データを読み込みました！内容を修正して提出できます。`);
@@ -493,11 +504,13 @@
         await Promise.all(savePromises);
         alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
         
-        // フォームのリセットと入力エリアの格納
         document.getElementById('shift-form').reset();
         calendarBody.querySelectorAll('.work-time-val, .work-time-error').forEach(cell => {
           cell.innerText = "-";
           cell.className = "work-time-val";
+        });
+        calendarBody.querySelectorAll('.break-val').forEach(cell => {
+          cell.innerText = "-";
         });
         updateOverallSummary();
         document.getElementById('shift-table-container').style.display = 'none';
@@ -542,8 +555,8 @@
 
         let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul style="padding-left: 20px;">`;
         myShifts.forEach(s => {
-          const workInfo = calculateWorkTimeText(s.start, s.end);
-          const workTextStr = workInfo.text !== "-" && !workInfo.isError ? ` （${workInfo.text}）` : "";
+          const res = calculateWorkTime(s.start, s.end);
+          const workTextStr = res.text !== "-" && !res.isError ? ` （${res.text} / 休憩:${res.breakText}）` : "";
           
           const [y, m, d] = s.date.split('-').map(Number);
           const formattedDate = `${y}/${m}/${d}`;
@@ -628,7 +641,7 @@
       URL.revokeObjectURL(url);
     };
 
-    // ★管理者専用シフト一覧（土曜：青背景+青文字 / 日祝：赤背景+赤文字）
+    // ★管理者専用シフト一覧（土曜：青背景、日祝：赤背景、平日は白）
     window.loadAdminView = async function() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
@@ -682,11 +695,11 @@
           let cls = "";
           let dataCls = "";
           if (dayIndex === 6) {
-            cls = "sat-cell";       // ヘッダー用: 青背景+青文字
-            dataCls = "sat-cell-bg";// データセル用: 青背景+黒文字
+            cls = "sat-cell";       // 土曜ヘッダー: 青背景+青文字
+            dataCls = "sat-cell-bg";// 土曜データ: 青背景+黒文字
           } else if (dayIndex === 0 || isHol) {
-            cls = "sun-hol-cell";   // ヘッダー用: 赤背景+赤文字
-            dataCls = "";           // データセル用: 通常の白背景
+            cls = "sun-hol-cell";   // 日祝ヘッダー: 赤背景+赤文字
+            dataCls = "sun-hol-bg"; // 日祝データ: 赤背景+黒文字
           }
           cellClasses.push(cls);
           dataCellClasses.push(dataCls);
