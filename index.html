@@ -4,6 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>シフト管理システム</title>
+  
+  <!-- FirebaseのSDKを読み込み -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics.js";
+
+    // ==========================================
+    // あなたのFirebase設定情報
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCycU_IgeH6luNYwJ-3FfkEWKC0qw8uDR4",
+      authDomain: "shiftapp-8faa5.firebaseapp.com",
+      projectId: "shiftapp-8faa5",
+      storageBucket: "shiftapp-8faa5.firebasestorage.app",
+      messagingSenderId: "653119135055",
+      appId: "1:653119135055:web:f92daf18be330592ddf93a",
+      measurementId: "G-1V9F5XRC5P"
+    };
+
+    // Firebaseの初期化
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const analytics = getAnalytics(app);
+
+    // グローバルに公開する関数
+    window.db = db;
+    window.firebaseModules = { collection, getDocs, setDoc, doc, deleteDoc, query, where };
+    window.initializeAppDone();
+  </script>
+
   <style>
     body { font-family: sans-serif; padding: 20px; max-width: 1000px; margin: auto; background-color: #f9f9f9; }
     .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
@@ -58,7 +89,7 @@
         </table>
       </div>
 
-      <button type="submit" id="submit-btn" style="margin-top: 20px;">一括でシフトを提出する</button>
+      <button type="submit" id="submit-btn" style="margin-top: 20px;" disabled>読み込み中...</button>
     </form>
   </div>
 
@@ -129,20 +160,6 @@
       return null;
     }
 
-    function cleanOldData() {
-      let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      const now = new Date();
-      const thresholdDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      
-      shifts = shifts.filter(s => {
-        let [y, m] = s.date.split('-').map(Number);
-        let shiftDate = new Date(y, m - 1, 1);
-        return shiftDate >= thresholdDate;
-      });
-      localStorage.setItem('shifts_data', JSON.stringify(shifts));
-    }
-    cleanOldData();
-
     const today = new Date();
     const currentDay = today.getDate();
     const currentMonth = today.getMonth(); 
@@ -155,10 +172,17 @@
 
     document.getElementById("target-month-title").innerText = `${targetYear}年 ${targetMonthDisplay}月分の希望シフト`;
 
-    if (currentDay > 15) {
-      document.getElementById("deadline-msg").innerText = "今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
-      document.getElementById("submit-btn").disabled = true;
-    }
+    window.initializeAppDone = function() {
+      const submitBtn = document.getElementById("submit-btn");
+      if (currentDay > 15) {
+        document.getElementById("deadline-msg").innerText = "今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
+        submitBtn.disabled = true;
+        submitBtn.innerText = "締切済み";
+      } else {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "一括でシフトを提出する";
+      }
+    };
 
     let timeOptions = '<option value="">休み</option>';
     for (let h = 9; h <= 23; h++) {
@@ -207,34 +231,62 @@
       adminMonthSelect.appendChild(opt);
     }
 
-    document.getElementById('shift-form').addEventListener('submit', (e) => {
+    document.getElementById('shift-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (currentDay > 15) return alert("締め切りを過ぎています。");
 
       const name = document.getElementById('name').value.trim();
       const department = document.getElementById('department').value;
       
-      let shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      let targetMonthPrefix = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}`;
-      shifts = shifts.filter(s => !(s.name === name && s.date.startsWith(targetMonthPrefix)));
+      if (!window.db) return alert("Firebaseの接続準備中です。少し待ってから再度お試しください。");
 
-      const rows = calendarBody.querySelectorAll('tr');
-      rows.forEach(row => {
-        const date = row.querySelector('.date-val').value;
-        const start = row.querySelector('.start-val').value;
-        const end = row.querySelector('.end-val').value;
+      const { collection, getDocs, setDoc, doc, query, where, deleteDoc } = window.firebaseModules;
+      const db = window.db;
 
-        if (start !== "" && end !== "") {
-          shifts.push({ name, department, date, start, end });
-        }
-      });
+      try {
+        let targetMonthPrefix = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}`;
+        const q = query(collection(db, "shifts"), where("name", "==", name));
+        const querySnapshot = await getDocs(q);
+        
+        let deletePromises = [];
+        querySnapshot.forEach((document) => {
+          let data = document.data();
+          if (data.date && data.date.startsWith(targetMonthPrefix)) {
+            deletePromises.push(deleteDoc(doc(db, "shifts", document.id)));
+          }
+        });
+        await Promise.all(deletePromises);
 
-      localStorage.setItem('shifts_data', JSON.stringify(shifts));
-      alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
-      document.getElementById('shift-form').reset();
+        let savePromises = [];
+        const rows = calendarBody.querySelectorAll('tr');
+        rows.forEach(row => {
+          const date = row.querySelector('.date-val').value;
+          const start = row.querySelector('.start-val').value;
+          const end = row.querySelector('.end-val').value;
+
+          if (start !== "" && end !== "") {
+            const docId = `${name}_${date}`;
+            savePromises.push(setDoc(doc(db, "shifts", docId), {
+              name,
+              department,
+              date,
+              start,
+              end,
+              updatedAt: new Date()
+            }));
+          }
+        });
+
+        await Promise.all(savePromises);
+        alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
+        document.getElementById('shift-form').reset();
+      } catch (err) {
+        console.error(err);
+        alert("提出中にエラーが発生しました。インターネット接続やFirebaseの設定を確認してください。");
+      }
     });
 
-    function searchMyShifts() {
+    window.searchMyShifts = async function() {
       const searchName = document.getElementById('search-name').value.trim();
       const resultDiv = document.getElementById('my-shifts-result');
       
@@ -242,36 +294,42 @@
         resultDiv.innerHTML = "<p style='color:red;'>名前を入力してください。</p>";
         return;
       }
+      if (!window.db) return alert("Firebaseの接続準備中です。");
 
-      const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      const myShifts = shifts.filter(s => s.name === searchName);
+      const { collection, getDocs, query, where } = window.firebaseModules;
+      const db = window.db;
 
-      if (myShifts.length === 0) {
-        resultDiv.innerHTML = `<p>「${searchName}」さんの提出済みシフトはありません。</p>`;
-        return;
+      resultDiv.innerHTML = "<p>検索中...</p>";
+
+      try {
+        const q = query(collection(db, "shifts"), where("name", "==", searchName));
+        const querySnapshot = await getDocs(q);
+        
+        let myShifts = [];
+        querySnapshot.forEach((doc) => {
+          myShifts.push(doc.data());
+        });
+
+        if (myShifts.length === 0) {
+          resultDiv.innerHTML = `<p>「${searchName}」さんの提出済みシフトはありません。</p>`;
+          return;
+        }
+
+        myShifts.sort((a, b) => a.date.localeCompare(b.date));
+
+        let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul>`;
+        myShifts.forEach(s => {
+          html += `<li>${s.date}：${s.start} 〜 ${s.end} （${s.department}）</li>`;
+        });
+        html += `</ul>`;
+        resultDiv.innerHTML = html;
+      } catch (err) {
+        console.error(err);
+        resultDiv.innerHTML = "<p style='color:red;'>データの取得に失敗しました。</p>";
       }
+    };
 
-      myShifts.sort((a, b) => a.date.localeCompare(b.date));
-
-      let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul>`;
-      myShifts.forEach(s => {
-        html += `<li>${s.date}：${s.start} 〜 ${s.end} （${s.department}）</li>`;
-      });
-      html += `</ul>`;
-      resultDiv.innerHTML = html;
-    }
-
-    function downloadCSV() {
-      const selectedMonthStr = adminMonthSelect.value;
-      const [selY, selM] = selectedMonthStr.split('-').map(Number);
-      const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      const monthShifts = shifts.filter(s => s.date.startsWith(selectedMonthStr));
-
-      if (monthShifts.length === 0) {
-        alert("ダウンロードするデータがありません。");
-        return;
-      }
-
+    window.downloadCSV = function(monthShifts, selY, selM) {
       const daysInSelMonth = new Date(selY, selM, 0).getDate();
       let dates = [];
       let dateHeaders = ["", ""];
@@ -339,106 +397,125 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    }
+    };
 
-    function loadAdminView() {
+    window.loadAdminView = async function() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
         alert("管理者コードが違います。");
         return;
       }
+      if (!window.db) return alert("Firebaseの接続準備中です。");
 
       const selectedMonthStr = adminMonthSelect.value;
       const [selY, selM] = selectedMonthStr.split('-').map(Number);
       
       const viewDiv = document.getElementById('admin-view');
       viewDiv.style.display = "block";
+      viewDiv.innerHTML = "<p>データを読み込んでいます...</p>";
 
-      const shifts = JSON.parse(localStorage.getItem('shifts_data') || '[]');
-      const monthShifts = shifts.filter(s => s.date.startsWith(selectedMonthStr));
+      const { collection, getDocs } = window.firebaseModules;
+      const db = window.db;
 
-      if (monthShifts.length === 0) {
-        viewDiv.innerHTML = `<h3>${selY}年${selM}月 シフト表</h3><p>এই月のデータはありません。</p>`;
-        return;
-      }
-
-      const daysInSelMonth = new Date(selY, selM, 0).getDate();
-      let dates = [];
-      let weekDaysList = ['日', '月', '火', '水', '木', '金', '土'];
-      let dateHeaders = [];
-      let dayHeaders = [];
-      let cellClasses = [];
-
-      for (let d = 1; d <= daysInSelMonth; d++) {
-        let dateObj = new Date(selY, selM - 1, d);
-        let dayIndex = dateObj.getDay();
-        let dateStr = `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        let isHol = getHolidayName(selY, selM - 1, d);
-        
-        dates.push(dateStr);
-        dateHeaders.push(`${selM}/${d}`);
-        dayHeaders.push(weekDaysList[dayIndex]);
-
-        let cls = "";
-        if (dayIndex === 6) cls = "sat-cell-bg";
-        else if (dayIndex === 0 || isHol) cls = "sun-hol-cell-bg";
-        cellClasses.push(cls);
-      }
-
-      let daibanshoNames = [];
-      let seisoNames = [];
-      let shiftMap = {};
-
-      monthShifts.forEach(d => {
-        if (!shiftMap[d.name]) shiftMap[d.name] = {};
-        shiftMap[d.name][d.date] = `${d.start}〜${d.end}`;
-
-        if (d.department === "大番所" && !daibanshoNames.includes(d.name)) {
-          daibanshoNames.push(d.name);
-        } else if (d.department === "清掃" && !seisoNames.includes(d.name) && !daibanshoNames.includes(d.name)) {
-          seisoNames.push(d.name);
-        }
-      });
-
-      daibanshoNames.sort();
-      seisoNames.sort();
-
-      let html = `<h3>${selY}年${selM}月 シフト一覧表</h3>`;
-      html += `<button class='no-print' onclick='downloadCSV()' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>CSVファイルとしてダウンロードする</button>`;
-      html += "<div style='overflow-x:auto;'><table>";
-
-      html += "<tr><th></th>";
-      for (let i = 0; i < dateHeaders.length; i++) {
-        html += `<th class="${cellClasses[i]}">${dateHeaders[i]}</th>`;
-      }
-      html += "</tr>";
-
-      html += "<tr><th></th>";
-      for (let i = 0; i < dayHeaders.length; i++) {
-        html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
-      }
-      html += "</tr>";
-
-      function renderDeptRows(title, namesList) {
-        if (namesList.length === 0) return;
-        html += `<tr><td colspan="${dates.length + 1}" class="section-title">【 ${title} 】</td></tr>`;
-        namesList.forEach(name => {
-          html += `<tr><th>${name}</th>`;
-          for (let i = 0; i < dates.length; i++) {
-            let date = dates[i];
-            let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
-            html += `<td class="${cellClasses[i]}">${val}</td>`;
-          }
-          html += "</tr>";
+      try {
+        const querySnapshot = await getDocs(collection(db, "shifts"));
+        let allShifts = [];
+        querySnapshot.forEach((doc) => {
+          allShifts.push(doc.data());
         });
+
+        const monthShifts = allShifts.filter(s => s.date && s.date.startsWith(selectedMonthStr));
+
+        if (monthShifts.length === 0) {
+          viewDiv.innerHTML = `<h3>${selY}年${selM}月 シフト表</h3><p>この月のデータはありません。</p>`;
+          return;
+        }
+
+        const daysInSelMonth = new Date(selY, selM, 0).getDate();
+        let dates = [];
+        let weekDaysList = ['日', '月', '火', '水', '木', '金', '土'];
+        let dateHeaders = [];
+        let dayHeaders = [];
+        let cellClasses = [];
+
+        for (let d = 1; d <= daysInSelMonth; d++) {
+          let dateObj = new Date(selY, selM - 1, d);
+          let dayIndex = dateObj.getDay();
+          let dateStr = `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          let isHol = getHolidayName(selY, selM - 1, d);
+          
+          dates.push(dateStr);
+          dateHeaders.push(`${selM}/${d}`);
+          dayHeaders.push(weekDaysList[dayIndex]);
+
+          let cls = "";
+          if (dayIndex === 6) cls = "sat-cell-bg";
+          else if (dayIndex === 0 || isHol) cls = "sun-hol-cell-bg";
+          cellClasses.push(cls);
+        }
+
+        let daibanshoNames = [];
+        let seisoNames = [];
+        let shiftMap = {};
+
+        monthShifts.forEach(d => {
+          if (!shiftMap[d.name]) shiftMap[d.name] = {};
+          shiftMap[d.name][d.date] = `${d.start}〜${d.end}`;
+
+          if (d.department === "大番所" && !daibanshoNames.includes(d.name)) {
+            daibanshoNames.push(d.name);
+          } else if (d.department === "清掃" && !seisoNames.includes(d.name) && !daibanshoNames.includes(d.name)) {
+            seisoNames.push(d.name);
+          }
+        });
+
+        daibanshoNames.sort();
+        seisoNames.sort();
+
+        window.currentMonthShiftsData = monthShifts;
+        window.currentSelY = selY;
+        window.currentSelM = selM;
+
+        let html = `<h3>${selY}年${selM}月 シフト一覧表</h3>`;
+        html += `<button class='no-print' onclick='downloadCSV(window.currentMonthShiftsData, window.currentSelY, window.currentSelM)' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>CSVファイルとしてダウンロードする</button>`;
+        html += "<div style='overflow-x:auto;'><table>";
+
+        html += "<tr><th></th>";
+        for (let i = 0; i < dateHeaders.length; i++) {
+          html += `<th class="${cellClasses[i]}">${dateHeaders[i]}</th>`;
+        }
+        html += "</tr>";
+
+        html += "<tr><th></th>";
+        for (let i = 0; i < dayHeaders.length; i++) {
+          html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
+        }
+        html += "</tr>";
+
+        function renderDeptRows(title, namesList) {
+          if (namesList.length === 0) return;
+          html += `<tr><td colspan="${dates.length + 1}" class="section-title">【 ${title} 】</td></tr>`;
+          namesList.forEach(name => {
+            html += `<tr><th>${name}</th>`;
+            for (let i = 0; i < dates.length; i++) {
+              let date = dates[i];
+              let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
+              html += `<td class="${cellClasses[i]}">${val}</td>`;
+            }
+            html += "</tr>";
+          });
+        }
+
+        renderDeptRows("大番所", daibanshoNames);
+        renderDeptRows("清掃", seisoNames);
+
+        html += "</table></div>";
+        viewDiv.innerHTML = html;
+      } catch (err) {
+        console.error(err);
+        viewDiv.innerHTML = "<p style='color:red;'>管理者データの読み込みに失敗しました。</p>";
       }
-
-      renderDeptRows("大番所", daibanshoNames);
-      renderDeptRows("清掃", seisoNames);
-
-      html += "</table></div>";
-      viewDiv.innerHTML = html;
-    }
+    };
   </script>
 </body>
 </html>
