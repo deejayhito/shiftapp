@@ -36,28 +36,34 @@
   </script>
 
   <style>
-    body { font-family: sans-serif; padding: 20px; max-width: 1000px; margin: auto; background-color: #f9f9f9; }
-    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    input, select, button { padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
+    body { font-family: sans-serif; padding: 12px; max-width: 1000px; margin: auto; background-color: #f9f9f9; }
+    .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    input, select, button { padding: 10px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid #ccc; font-size: 15px; }
     input[type="text"], select { width: 100%; }
     button { background-color: #007BFF; color: white; border: none; font-weight: bold; cursor: pointer; width: 100%; }
     button:hover { background-color: #0056b3; }
     .admin-btn { background-color: #333; }
+
+    /* 全体テーブル基本デザイン */
     table { border-collapse: collapse; width: 100%; font-size: 13px; background: white; margin-top: 15px; }
     th, td { border: 1px solid #ccc; padding: 6px; text-align: center; white-space: nowrap; color: #000; }
-    th { background-color: #e6f2ff; }
-    .shift-table th, .shift-table td { padding: 5px; }
+    th { background-color: #f0f4f8; }
     .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
-    
+
+    /* シフト入力用テーブル（スマホ最適化） */
+    .shift-table { width: 100%; table-layout: fixed; font-size: 12px; margin-top: 10px; }
+    .shift-table th, .shift-table td { padding: 5px 2px; white-space: normal; word-break: break-all; }
+    .shift-table select { padding: 6px 2px; font-size: 12px; margin-bottom: 0; width: 100%; }
+
+    /* 土曜日・日祝日のカラー配色クラス */
     .sat-cell { background-color: #e0f2fe !important; color: #0369a1 !important; }
     .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000 !important; }
     
     .sat-cell-bg { background-color: #e0f2fe !important; color: #000 !important; }
-    .sun-hol-cell-bg { background-color: #ffe6e6 !important; color: #000 !important; }
 
     /* 勤務時間カラムのスタイル */
-    .work-time-val { font-weight: bold; color: #007BFF; }
-    .work-time-error { font-weight: bold; color: #d9534f; }
+    .work-time-val { font-weight: bold; color: #007BFF; font-size: 11px; }
+    .work-time-error { font-weight: bold; color: #d9534f; font-size: 11px; }
 
     /* モード選択ボタンのスタイル */
     .mode-btn-container { display: flex; gap: 10px; margin-bottom: 15px; }
@@ -68,10 +74,10 @@
     .btn-update:hover { background-color: #138496; }
 
     /* 合計集計ボックスのスタイル */
-    .summary-box { background-color: #eef6ff; border: 1px solid #b8daff; border-radius: 6px; padding: 15px; margin-top: 20px; margin-bottom: 15px; }
-    .summary-title { font-size: 15px; font-weight: bold; color: #004085; margin-bottom: 8px; }
-    .summary-content { font-size: 16px; color: #333; line-height: 1.6; }
-    .summary-num { font-weight: bold; color: #007BFF; font-size: 18px; }
+    .summary-box { background-color: #eef6ff; border: 1px solid #b8daff; border-radius: 6px; padding: 12px; margin-top: 15px; margin-bottom: 15px; }
+    .summary-title { font-size: 14px; font-weight: bold; color: #004085; margin-bottom: 6px; }
+    .summary-content { font-size: 15px; color: #333; line-height: 1.5; }
+    .summary-num { font-weight: bold; color: #007BFF; font-size: 17px; }
 
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
@@ -80,8 +86,8 @@
 
   <!-- ================= バイト用 一括入力画面 ================= -->
   <div class="card" id="submit-section">
-    <h2>シフト一括提出フォーム</h2>
-    <div id="deadline-msg" style="font-weight: bold; margin-bottom: 15px;"></div>
+    <h2 style="font-size: 20px; margin-top: 5px;">シフト一括提出フォーム</h2>
+    <div id="deadline-msg" style="font-weight: bold; margin-bottom: 15px; font-size: 14px;"></div>
     
     <form id="shift-form">
       <label>名前</label>
@@ -102,17 +108,17 @@
 
       <!-- シフト入力エリア（ボタン押下後に表示） -->
       <div id="shift-table-container" style="display: none;">
-        <h3 id="target-month-title" style="margin-top: 20px; color: #333;"></h3>
-        <p style="font-size: 13px; color: #666;">休み希望の場合は「休み」のままにしてください。</p>
+        <h3 id="target-month-title" style="margin-top: 20px; color: #333; font-size: 17px;"></h3>
+        <p style="font-size: 12px; color: #666; margin-bottom: 8px;">休み希望の場合は「休み」のままにしてください。</p>
 
-        <div style="overflow-x: auto;">
+        <div style="width: 100%;">
           <table class="shift-table">
             <thead>
               <tr>
-                <th>日付 (曜日)</th>
-                <th>出勤時間</th>
-                <th>退勤時間</th>
-                <th>勤務時間</th>
+                <th style="width: 26%;">日付</th>
+                <th style="width: 27%;">出勤</th>
+                <th style="width: 27%;">退勤</th>
+                <th style="width: 20%;">時間</th>
               </tr>
             </thead>
             <tbody id="calendar-body"></tbody>
@@ -135,8 +141,8 @@
 
   <!-- ================= 個人シフト確認画面 ================= -->
   <div class="card no-print">
-    <h2>個人のシフト確認</h2>
-    <p>自分の名前を入力すると、提出済みのシフトがすべて確認できます。</p>
+    <h2 style="font-size: 20px; margin-top: 5px;">個人のシフト確認</h2>
+    <p style="font-size: 13px;">自分の名前を入力すると、提出済みのシフトがすべて確認できます。</p>
     <input type="text" id="search-name" placeholder="例：坂本佑樹">
     <button onclick="searchMyShifts()" style="background-color: #28a745;">自分のシフトを検索</button>
     <div id="my-shifts-result" style="margin-top: 15px;"></div>
@@ -144,7 +150,7 @@
 
   <!-- ================= 管理者用画面 ================= -->
   <div class="card no-print">
-    <h2>管理者専用シフト確認</h2>
+    <h2 style="font-size: 20px; margin-top: 5px;">管理者専用シフト確認</h2>
     <input type="password" id="admin-pass" placeholder="管理者コードを入力">
     
     <label style="margin-top: 10px; display:block;">表示する月を選択</label>
@@ -212,7 +218,7 @@
       const diff = endMinutes - startMinutes;
 
       if (diff <= 0) {
-        return { text: "入力エラー", isError: true };
+        return { text: "エラー", isError: true };
       }
 
       const hours = Math.floor(diff / 60);
@@ -221,7 +227,7 @@
       if (minutes === 0) {
         return { text: `${hours}時間`, isError: false };
       } else {
-        return { text: `${hours}時間${minutes}分`, isError: false };
+        return { text: `${hours}h${minutes}m`, isError: false };
       }
     }
 
@@ -356,7 +362,6 @@
         workTimeCell.className = "work-time-val";
       });
       updateOverallSummary();
-      // 入力エリアを表示
       document.getElementById('shift-table-container').style.display = 'block';
     };
 
@@ -419,7 +424,6 @@
 
         // 全体集計を更新
         updateOverallSummary();
-        // 入力エリアを表示
         document.getElementById('shift-table-container').style.display = 'block';
         alert(`「${name}」さんの ${targetMonthDisplay}月分の前回提出データを読み込みました！内容を修正して提出できます。`);
 
@@ -504,7 +508,7 @@
       }
     });
 
-    // ★修正箇所: 個人のシフト確認（フォーマットを 2026/11/1：12:00 〜 13:00 （1時間） に変更）
+    // 個人のシフト確認
     window.searchMyShifts = async function() {
       const searchName = document.getElementById('search-name').value.trim();
       const resultDiv = document.getElementById('my-shifts-result');
@@ -536,16 +540,15 @@
 
         myShifts.sort((a, b) => a.date.localeCompare(b.date));
 
-        let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul>`;
+        let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul style="padding-left: 20px;">`;
         myShifts.forEach(s => {
           const workInfo = calculateWorkTimeText(s.start, s.end);
           const workTextStr = workInfo.text !== "-" && !workInfo.isError ? ` （${workInfo.text}）` : "";
           
-          // 2026-11-01 -> 2026/11/1 に変換
           const [y, m, d] = s.date.split('-').map(Number);
           const formattedDate = `${y}/${m}/${d}`;
 
-          html += `<li>${formattedDate}：${s.start} 〜 ${s.end}${workTextStr}</li>`;
+          html += `<li style="margin-bottom: 5px;">${formattedDate}：${s.start} 〜 ${s.end}${workTextStr}</li>`;
         });
         html += `</ul>`;
         resultDiv.innerHTML = html;
@@ -625,6 +628,7 @@
       URL.revokeObjectURL(url);
     };
 
+    // ★管理者専用シフト一覧（土曜：青背景+青文字 / 日祝：赤背景+赤文字）
     window.loadAdminView = async function() {
       const pass = document.getElementById('admin-pass').value;
       if (pass !== "3939") {
@@ -663,6 +667,7 @@
         let dateHeaders = [];
         let dayHeaders = [];
         let cellClasses = [];
+        let dataCellClasses = [];
 
         for (let d = 1; d <= daysInSelMonth; d++) {
           let dateObj = new Date(selY, selM - 1, d);
@@ -675,9 +680,16 @@
           dayHeaders.push(weekDaysList[dayIndex]);
 
           let cls = "";
-          if (dayIndex === 6) cls = "sat-cell-bg";
-          else if (dayIndex === 0 || isHol) cls = "sun-hol-cell-bg";
+          let dataCls = "";
+          if (dayIndex === 6) {
+            cls = "sat-cell";       // ヘッダー用: 青背景+青文字
+            dataCls = "sat-cell-bg";// データセル用: 青背景+黒文字
+          } else if (dayIndex === 0 || isHol) {
+            cls = "sun-hol-cell";   // ヘッダー用: 赤背景+赤文字
+            dataCls = "";           // データセル用: 通常の白背景
+          }
           cellClasses.push(cls);
+          dataCellClasses.push(dataCls);
         }
 
         let daibanshoNames = [];
@@ -706,13 +718,13 @@
         html += `<button class='no-print' onclick='downloadCSV(window.currentMonthShiftsData, window.currentSelY, window.currentSelM)' style='background:#28a745; margin-bottom:15px; width:auto; padding:10px 20px;'>CSVファイルとしてダウンロードする</button>`;
         html += "<div style='overflow-x:auto;'><table>";
 
-        html += "<tr><th></th>";
+        html += "<tr><th style='background-color: white;'></th>";
         for (let i = 0; i < dateHeaders.length; i++) {
           html += `<th class="${cellClasses[i]}">${dateHeaders[i]}</th>`;
         }
         html += "</tr>";
 
-        html += "<tr><th></th>";
+        html += "<tr><th style='background-color: white;'></th>";
         for (let i = 0; i < dayHeaders.length; i++) {
           html += `<th class="${cellClasses[i]}">${dayHeaders[i]}</th>`;
         }
@@ -722,11 +734,11 @@
           if (namesList.length === 0) return;
           html += `<tr><td colspan="${dates.length + 1}" class="section-title">【 ${title} 】</td></tr>`;
           namesList.forEach(name => {
-            html += `<tr><th>${name}</th>`;
+            html += `<tr><th style="background-color: white; font-weight: normal;">${name}</th>`;
             for (let i = 0; i < dates.length; i++) {
               let date = dates[i];
               let val = (shiftMap[name] && shiftMap[name][date]) ? shiftMap[name][date] : "";
-              html += `<td class="${cellClasses[i]}">${val}</td>`;
+              html += `<td class="${dataCellClasses[i]}">${val}</td>`;
             }
             html += "</tr>";
           });
