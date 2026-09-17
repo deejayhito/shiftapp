@@ -49,11 +49,9 @@
     .shift-table th, .shift-table td { padding: 5px; }
     .section-title { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 8px; }
     
-    /* 曜日・日付セルの色設定（時間は黒字） */
     .sat-cell { background-color: #e0f2fe !important; color: #0369a1 !important; }
     .sun-hol-cell { background-color: #ffe6e6 !important; color: #cc0000 !important; }
     
-    /* 管理者画面などで土日祝列の文字色を黒に戻すためのクラス */
     .sat-cell-bg { background-color: #e0f2fe !important; color: #000 !important; }
     .sun-hol-cell-bg { background-color: #ffe6e6 !important; color: #000 !important; }
 
@@ -64,8 +62,8 @@
 
   <!-- ================= バイト用 一括入力画面 ================= -->
   <div class="card" id="submit-section">
-    <h2>翌月シフト一括提出フォーム</h2>
-    <div id="deadline-msg" style="color: red; font-weight: bold; margin-bottom: 15px;"></div>
+    <h2>シフト一括提出フォーム</h2>
+    <div id="deadline-msg" style="font-weight: bold; margin-bottom: 15px;"></div>
     
     <form id="shift-form">
       <label>名前</label>
@@ -165,7 +163,10 @@
     const currentMonth = today.getMonth(); 
     const currentYear = today.getFullYear();
 
-    const targetDate = new Date(currentYear, currentMonth + 1, 1);
+    // ★追加・修正：15日までは翌月(+1)、16日以降は翌々月(+2)をターゲットにする
+    let targetMonthOffset = currentDay <= 15 ? 1 : 2;
+    const targetDate = new Date(currentYear, currentMonth + targetMonthOffset, 1);
+    
     const targetYear = targetDate.getFullYear();
     const targetMonth = targetDate.getMonth(); 
     const targetMonthDisplay = targetMonth + 1;
@@ -174,13 +175,19 @@
 
     window.initializeAppDone = function() {
       const submitBtn = document.getElementById("submit-btn");
+      const deadlineMsg = document.getElementById("deadline-msg");
+
+      // いつでも提出ボタンは有効化する
+      submitBtn.disabled = false;
+      submitBtn.innerText = "一括でシフトを提出する";
+      
+      // 16日以降と15日以前でメッセージを切り替える
       if (currentDay > 15) {
-        document.getElementById("deadline-msg").innerText = "今月の提出締め切り（15日）を過ぎているため、新規提出はできません。";
-        submitBtn.disabled = true;
-        submitBtn.innerText = "締切済み";
+        deadlineMsg.innerText = `※15日を過ぎたため、現在は【${targetMonthDisplay}月分】のシフトを受付中です。`;
+        deadlineMsg.style.color = "#0056b3"; // 青色で表示
       } else {
-        submitBtn.disabled = false;
-        submitBtn.innerText = "一括でシフトを提出する";
+        deadlineMsg.innerText = `※${targetMonthDisplay}月分のシフト提出期限は今月15日までです。`;
+        deadlineMsg.style.color = "#d97706"; // オレンジ色で表示
       }
     };
 
@@ -220,6 +227,7 @@
       calendarBody.appendChild(tr);
     }
 
+    // 管理者画面用の月選択（当月から4ヶ月分を表示）
     const adminMonthSelect = document.getElementById('admin-month-select');
     for (let i = 0; i < 4; i++) {
       let d = new Date(currentYear, currentMonth + i, 1);
@@ -233,8 +241,7 @@
 
     document.getElementById('shift-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (currentDay > 15) return alert("締め切りを過ぎています。");
-
+      
       const name = document.getElementById('name').value.trim();
       const department = document.getElementById('department').value;
       
@@ -251,6 +258,7 @@
         let deletePromises = [];
         querySnapshot.forEach((document) => {
           let data = document.data();
+          // 対象月のデータだけを上書き（削除して再登録）する
           if (data.date && data.date.startsWith(targetMonthPrefix)) {
             deletePromises.push(deleteDoc(doc(db, "shifts", document.id)));
           }
