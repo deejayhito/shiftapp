@@ -55,6 +55,24 @@
     .sat-cell-bg { background-color: #e0f2fe !important; color: #000 !important; }
     .sun-hol-cell-bg { background-color: #ffe6e6 !important; color: #000 !important; }
 
+    /* 勤務時間カラムのスタイル */
+    .work-time-val { font-weight: bold; color: #007BFF; }
+    .work-time-error { font-weight: bold; color: #d9534f; }
+
+    /* モード選択ボタンのスタイル */
+    .mode-btn-container { display: flex; gap: 10px; margin-bottom: 15px; }
+    .mode-btn-container button { width: 50%; margin-bottom: 0; padding: 12px 5px; font-size: 15px; }
+    .btn-new { background-color: #28a745; }
+    .btn-new:hover { background-color: #218838; }
+    .btn-update { background-color: #17a2b8; }
+    .btn-update:hover { background-color: #138496; }
+
+    /* 合計集計ボックスのスタイル */
+    .summary-box { background-color: #eef6ff; border: 1px solid #b8daff; border-radius: 6px; padding: 15px; margin-top: 20px; margin-bottom: 15px; }
+    .summary-title { font-size: 15px; font-weight: bold; color: #004085; margin-bottom: 8px; }
+    .summary-content { font-size: 16px; color: #333; line-height: 1.6; }
+    .summary-num { font-weight: bold; color: #007BFF; font-size: 18px; }
+
     @media print { .no-print { display: none; } @page { size: landscape; } }
   </style>
 </head>
@@ -75,19 +93,43 @@
         <option value="清掃">清掃</option>
       </select>
 
-      <h3 id="target-month-title" style="margin-top: 20px; color: #333;"></h3>
-      <p style="font-size: 13px; color: #666;">休み希望の場合は「休み」のままにしてください。</p>
-
-      <div style="overflow-x: auto;">
-        <table class="shift-table">
-          <thead>
-            <tr><th>日付 (曜日)</th><th>出勤時間</th><th>退勤時間</th></tr>
-          </thead>
-          <tbody id="calendar-body"></tbody>
-        </table>
+      <!-- 新規提出 / 更新して提出 ボタン -->
+      <label>提出モードの選択</label>
+      <div class="mode-btn-container">
+        <button type="button" class="btn-new" onclick="resetToNewForm()">新規提出</button>
+        <button type="button" class="btn-update" onclick="loadPreviousShift()">更新して提出</button>
       </div>
 
-      <button type="submit" id="submit-btn" style="margin-top: 20px;" disabled>読み込み中...</button>
+      <!-- シフト入力エリア（ボタン押下後に表示） -->
+      <div id="shift-table-container" style="display: none;">
+        <h3 id="target-month-title" style="margin-top: 20px; color: #333;"></h3>
+        <p style="font-size: 13px; color: #666;">休み希望の場合は「休み」のままにしてください。</p>
+
+        <div style="overflow-x: auto;">
+          <table class="shift-table">
+            <thead>
+              <tr>
+                <th>日付 (曜日)</th>
+                <th>出勤時間</th>
+                <th>退勤時間</th>
+                <th>勤務時間</th>
+              </tr>
+            </thead>
+            <tbody id="calendar-body"></tbody>
+          </table>
+        </div>
+
+        <!-- 合計計算表示エリア -->
+        <div class="summary-box">
+          <div class="summary-title">【提出シフトの合計】</div>
+          <div class="summary-content">
+            勤務日数：<span id="summary-days" class="summary-num">0日</span><br>
+            総勤務時間：<span id="summary-hours" class="summary-num">0時間</span>
+          </div>
+        </div>
+
+        <button type="submit" id="submit-btn" style="margin-top: 10px;" disabled>読み込み中...</button>
+      </div>
     </form>
   </div>
 
@@ -158,12 +200,67 @@
       return null;
     }
 
+    // 勤務時間（「8時間」や「5時間30分」）の計算関数
+    function calculateWorkTimeText(startStr, endStr) {
+      if (!startStr || !endStr) return { text: "-", isError: false };
+
+      const [sH, sM] = startStr.split(':').map(Number);
+      const [eH, eM] = endStr.split(':').map(Number);
+
+      const startMinutes = sH * 60 + sM;
+      const endMinutes = eH * 60 + eM;
+      const diff = endMinutes - startMinutes;
+
+      if (diff <= 0) {
+        return { text: "入力エラー", isError: true };
+      }
+
+      const hours = Math.floor(diff / 60);
+      const minutes = diff % 60;
+
+      if (minutes === 0) {
+        return { text: `${hours}時間`, isError: false };
+      } else {
+        return { text: `${hours}時間${minutes}分`, isError: false };
+      }
+    }
+
+    // 全体の「勤務日数」と「総勤務時間」を計算して更新する関数
+    function updateOverallSummary() {
+      let daysCount = 0;
+      let totalMinutes = 0;
+
+      const rows = document.querySelectorAll('#calendar-body tr');
+      rows.forEach(row => {
+        const startVal = row.querySelector('.start-val').value;
+        const endVal = row.querySelector('.end-val').value;
+
+        if (startVal && endVal) {
+          const [sH, sM] = startVal.split(':').map(Number);
+          const [eH, eM] = endVal.split(':').map(Number);
+          const diff = (eH * 60 + eM) - (sH * 60 + sM);
+
+          if (diff > 0) {
+            daysCount++;
+            totalMinutes += diff;
+          }
+        }
+      });
+
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = totalMinutes % 60;
+      let hoursStr = mins === 0 ? `${hours}時間` : `${hours}時間${mins}分`;
+
+      document.getElementById('summary-days').innerText = `${daysCount}日`;
+      document.getElementById('summary-hours').innerText = hoursStr;
+    }
+
     const today = new Date();
     const currentDay = today.getDate();
     const currentMonth = today.getMonth(); 
     const currentYear = today.getFullYear();
 
-    // ★追加・修正：15日までは翌月(+1)、16日以降は翌々月(+2)をターゲットにする
+    // 15日までは翌月(+1)、16日以降は翌々月(+2)をターゲットにする
     let targetMonthOffset = currentDay <= 15 ? 1 : 2;
     const targetDate = new Date(currentYear, currentMonth + targetMonthOffset, 1);
     
@@ -177,27 +274,23 @@
       const submitBtn = document.getElementById("submit-btn");
       const deadlineMsg = document.getElementById("deadline-msg");
 
-      // いつでも提出ボタンは有効化する
       submitBtn.disabled = false;
       submitBtn.innerText = "一括でシフトを提出する";
       
-      // 16日以降と15日以前でメッセージを切り替える
       if (currentDay > 15) {
         deadlineMsg.innerText = `※15日を過ぎたため、現在は【${targetMonthDisplay}月分】のシフトを受付中です。`;
-        deadlineMsg.style.color = "#0056b3"; // 青色で表示
+        deadlineMsg.style.color = "#0056b3";
       } else {
         deadlineMsg.innerText = `※${targetMonthDisplay}月分のシフト提出期限は今月15日までです。`;
-        deadlineMsg.style.color = "#d97706"; // オレンジ色で表示
+        deadlineMsg.style.color = "#d97706";
       }
     };
 
+    // 朝06:00から33:00（翌朝09:00）まで15分刻みの時間選択肢を生成
     let timeOptions = '<option value="">休み</option>';
-    for (let h = 9; h <= 23; h++) {
-      if (h === 23) {
-        timeOptions += `<option value="23:00">23:00</option>`;
-        break;
-      }
+    for (let h = 6; h <= 33; h++) {
       for (let m of [0, 15, 30, 45]) {
+        if (h === 33 && m > 0) break; // 33:00で終了
         let time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
         timeOptions += `<option value="${time}">${time}</option>`;
       }
@@ -223,9 +316,118 @@
         <td class="${cellClass}"><b>${targetMonthDisplay}/${d} (${weekDay})</b><input type="hidden" class="date-val" value="${dateStr}"></td>
         <td><select class="start-val">${timeOptions}</select></td>
         <td><select class="end-val">${timeOptions}</select></td>
+        <td class="work-time-val">-</td>
       `;
+
+      const startSelect = tr.querySelector('.start-val');
+      const endSelect = tr.querySelector('.end-val');
+      const workTimeCell = tr.querySelector('.work-time-val');
+
+      const updateWorkTime = () => {
+        const startVal = startSelect.value;
+        const endVal = endSelect.value;
+        const res = calculateWorkTimeText(startVal, endVal);
+        
+        workTimeCell.innerText = res.text;
+        if (res.isError) {
+          workTimeCell.className = "work-time-error";
+        } else {
+          workTimeCell.className = "work-time-val";
+        }
+        
+        // 全体集計も更新
+        updateOverallSummary();
+      };
+
+      startSelect.addEventListener('change', updateWorkTime);
+      endSelect.addEventListener('change', updateWorkTime);
+
       calendarBody.appendChild(tr);
     }
+
+    // 「新規提出」ボタン押下時の動作
+    window.resetToNewForm = function() {
+      const rows = calendarBody.querySelectorAll('tr');
+      rows.forEach(row => {
+        row.querySelector('.start-val').value = "";
+        row.querySelector('.end-val').value = "";
+        const workTimeCell = row.querySelector('.work-time-val, .work-time-error');
+        workTimeCell.innerText = "-";
+        workTimeCell.className = "work-time-val";
+      });
+      updateOverallSummary();
+      // 入力エリアを表示
+      document.getElementById('shift-table-container').style.display = 'block';
+    };
+
+    // 「更新して提出」ボタン押下時の動作
+    window.loadPreviousShift = async function() {
+      const name = document.getElementById('name').value.trim();
+      if (!name) {
+        alert("名前を入力してから「更新して提出」を押してください。");
+        return;
+      }
+      if (!window.db) return alert("Firebaseの接続準備中です。");
+
+      const { collection, getDocs, query, where } = window.firebaseModules;
+      const db = window.db;
+
+      let targetMonthPrefix = `${targetYear}-${String(targetMonthDisplay).padStart(2, '0')}`;
+
+      try {
+        const q = query(collection(db, "shifts"), where("name", "==", name));
+        const querySnapshot = await getDocs(q);
+
+        let previousShifts = {};
+        querySnapshot.forEach((document) => {
+          let data = document.data();
+          if (data.date && data.date.startsWith(targetMonthPrefix)) {
+            previousShifts[data.date] = data;
+          }
+        });
+
+        if (Object.keys(previousShifts).length === 0) {
+          alert(`「${name}」さんの ${targetMonthDisplay}月分の前回の提出データは見つかりませんでした。`);
+          document.getElementById('shift-table-container').style.display = 'block';
+          return;
+        }
+
+        // 過去データをカレンダーにセット
+        const rows = calendarBody.querySelectorAll('tr');
+        rows.forEach(row => {
+          const dateVal = row.querySelector('.date-val').value;
+          const startSelect = row.querySelector('.start-val');
+          const endSelect = row.querySelector('.end-val');
+
+          if (previousShifts[dateVal]) {
+            startSelect.value = previousShifts[dateVal].start || "";
+            endSelect.value = previousShifts[dateVal].end || "";
+            if (previousShifts[dateVal].department) {
+              document.getElementById('department').value = previousShifts[dateVal].department;
+            }
+          } else {
+            startSelect.value = "";
+            endSelect.value = "";
+          }
+
+          // 行ごとの勤務時間を再計算
+          const res = calculateWorkTimeText(startSelect.value, endSelect.value);
+          const workTimeCell = row.querySelector('.work-time-val, .work-time-error');
+          workTimeCell.innerText = res.text;
+          workTimeCell.className = res.isError ? "work-time-error" : "work-time-val";
+        });
+
+        // 全体集計を更新
+        updateOverallSummary();
+        // 入力エリアを表示
+        document.getElementById('shift-table-container').style.display = 'block';
+        alert(`「${name}」さんの ${targetMonthDisplay}月分の前回提出データを読み込みました！内容を修正して提出できます。`);
+
+      } catch (err) {
+        console.error(err);
+        alert("前回のシフトデータの読み込みに失敗しました。");
+      }
+    };
 
     // 管理者画面用の月選択（当月から4ヶ月分を表示）
     const adminMonthSelect = document.getElementById('admin-month-select');
@@ -258,7 +460,6 @@
         let deletePromises = [];
         querySnapshot.forEach((document) => {
           let data = document.data();
-          // 対象月のデータだけを上書き（削除して再登録）する
           if (data.date && data.date.startsWith(targetMonthPrefix)) {
             deletePromises.push(deleteDoc(doc(db, "shifts", document.id)));
           }
@@ -287,7 +488,16 @@
 
         await Promise.all(savePromises);
         alert(`${name}さんの ${targetMonthDisplay}月分シフトを提出しました！`);
+        
+        // フォームのリセットと入力エリアの格納
         document.getElementById('shift-form').reset();
+        calendarBody.querySelectorAll('.work-time-val, .work-time-error').forEach(cell => {
+          cell.innerText = "-";
+          cell.className = "work-time-val";
+        });
+        updateOverallSummary();
+        document.getElementById('shift-table-container').style.display = 'none';
+
       } catch (err) {
         console.error(err);
         alert("提出中にエラーが発生しました。インターネット接続やFirebaseの設定を確認してください。");
@@ -327,7 +537,9 @@
 
         let html = `<h4>${searchName} さんの提出シフト一覧</h4><ul>`;
         myShifts.forEach(s => {
-          html += `<li>${s.date}：${s.start} 〜 ${s.end} （${s.department}）</li>`;
+          const workInfo = calculateWorkTimeText(s.start, s.end);
+          const workTextStr = workInfo.text !== "-" && !workInfo.isError ? ` （${workInfo.text}）` : "";
+          html += `<li>${s.date}：${s.start} 〜 ${s.end}${workTextStr} 【${s.department}】</li>`;
         });
         html += `</ul>`;
         resultDiv.innerHTML = html;
